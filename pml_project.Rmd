@@ -1,0 +1,95 @@
+---
+title: "Practical Machine Learning Course-Project, Human-Activity Recognition (HAR)"
+author: "Bart Browning"
+date: "5/17/2015"
+output:
+  html_document:
+    highlight: textmate
+    theme: cosmo
+  pdf_document: default
+---
+
+## 1. Executive Summary.
+
+The objective of this analysis is to use a machine-learning algorithm to predict which type of improper movement is being performed by a subject as they exercise.
+This prediction is based upon data collected from accelerometers attached at 4 different positions: arm, forearm, belt, and dumbbell.
+For more information on the data-collection process, see: http://groupware.les.inf.puc-rio.br/har#dataset
+
+A random-forest algorithm was used, and it scored 100% with the 20 sets of test data provided.
+
+## 2. Read in the raw HAR data.
+
+Note that there are a total of 160 columns (where "classe" is the variable that we are trying to predict. Possible incorrect-movement values are: A through E). Also, there are almost 20K rows of training data.
+
+```{r}
+library(caret)
+set.seed(1)
+trainingAll <- read.csv('pml-training.csv', na.strings=c("NA", ""))
+testingAll <- read.csv('pml-testing.csv', na.strings=c("NA", ""))
+dim(trainingAll)
+dim(testingAll)
+```
+
+## 3. Remove all non-predictive data.
+
+The accelerometer data-column names all contain one of three strings, either arm, belt or dumbbell.
+These are the only variables to be used for prediction (the other columns tend to be timestamps, subject-identifiers, etc.)
+
+```{r}
+predCol <- grepl("arm|dumbbell|belt|classe", names(trainingAll))
+trainingPred <- trainingAll[,predCol]
+predCol <- grepl("arm|dumbbell|belt", names(testingAll))
+testingPred <- testingAll[,predCol]
+```
+
+## 4. Remove all columns that are missing data.
+
+Keeping only the predictors with no missing data seemed like a reasonable approach given the large number of predictor-variables available.
+Note that we are still left with 52 predictor-variables.
+
+```{r}
+naSum <- apply(trainingPred, 2, function(x) {sum(is.na(x))})
+trainingGood <- trainingPred[, which(naSum == 0)]
+naSum <- apply(testingPred, 2, function(x) {sum(is.na(x))})
+testingGood <- testingPred[, which(naSum == 0)]
+dim(trainingGood)
+dim(testingGood)
+```
+
+## 5. Train a random-forest algorithm using 2-Fold cross-validation.
+
+Note that this step is very slow! (About 30 minutes on my PC).
+I also tried 5-Fold cross-validation (which took about two hours to run) but it gave the same test-results and predicted error-rate.
+
+```{r}
+tc <- trainControl(method = "cv", number = 2)
+##rfModel <- readRDS("savedRFmodel.rds")  ## To save time, used a cached copy of the model
+rfModel <- train(trainingGood$classe ~ ., data= trainingGood, method = "rf", trControl=tc, prox = TRUE)
+saveRDS(rfModel, "savedRFmodel.rds") 
+print(rfModel)
+```
+
+## 6. Show the error-rate.
+
+Note that the error rate for this model is predicted to be less than 0.5%.
+
+```{r}
+print(rfModel$finalModel)
+```
+
+## 7. Save the test-result predictions.
+
+These were uploaded to the course website, and all 20 predictions were correct.
+This seems logical, as our error rate indicates that on average we should get one incorrect prediction for every 200 tests.
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+predictions <- predict(rfModel, testingGood)
+pml_write_files(predictions)
+```
